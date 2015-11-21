@@ -1,0 +1,203 @@
+// Video of this sketch in action on YouTube: https://youtu.be/7rXMi3i4RSI
+
+#include <FastIO.h>
+#include <I2CIO.h>
+#include <LCD.h>
+#include <LiquidCrystal.h>
+#include <LiquidCrystal_I2C.h>
+
+#include "DHT.h"
+DHT dht(2, DHT22);
+#include <SPI.h>
+#include <Ethernet.h>
+#define DHTPIN 2 
+#define DHTTYPE DHT22
+int analogValue;
+int ledPin = 3;
+
+// Define LCD
+LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE); // Addr, En, Rw, Rs, d4, d5, d6, d7, backlighpin, polarity
+
+// Enter a MAC address and IP address for your controller below.
+// The IP address will be dependent on your local network.
+// gateway and subnet are optional:
+byte mac[] = { 
+  0x00, 0xAA, 0xBB, 0xCC, 0xDE, 0x02
+  };
+IPAddress ip(192,168,1, 143);
+IPAddress myDns(192,168,1, 1);
+IPAddress gateway(192,168,1, 1);
+IPAddress subnet(255, 255, 255, 0);
+
+// telnet defaults to port 23
+EthernetServer server(23);
+boolean alreadyConnected = false; // whether or not the client was connected previously
+String commandString;
+
+void setup() {
+  pinMode(ledPin, OUTPUT);      // sets the digital pin as output
+  // initialize the ethernet device
+  dht.begin();
+  // initialize the DHT sensor
+  Ethernet.begin(mac, ip, myDns, gateway, subnet);
+  // start listening for clients
+  server.begin();
+ // Open serial communications and wait for port to open:
+  Serial.begin(9600);
+   while (!Serial) {
+    ; // wait for serial port to connect. Needed for Leonardo only
+  }
+
+  Serial.print("Chat server address:");
+  Serial.println(Ethernet.localIP());
+  lcd.begin(16,2); //2 lines of 16 Characters
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.clear();
+  delay(5000);
+  lcd.print("Chat IP Address");
+  lcd.setCursor(0, 1);          
+  lcd.print(Ethernet.localIP());
+}
+
+void loop() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+   
+  // wait for a new client:
+  EthernetClient client = server.available();
+
+  // when the client sends the first byte, say hello:
+  if (client) {
+    if (!alreadyConnected) {
+      // clear out the input buffer:
+      client.flush();    
+      commandString = ""; //clear the commandString variable
+
+      server.println("--> Please type your command and hit Return...");
+      alreadyConnected = true;
+    } 
+
+    while (client.available()) {      
+      // read the bytes incoming from the client:
+      char newChar = client.read();
+
+     if (newChar == 0x0D)  //If a 0x0D is received, a Carriage Return, then evaluate the command
+     {
+         server.print("Received this command: ");
+         server.println(commandString);   
+         processCommand(commandString);
+     } else
+     {
+       Serial.println(newChar);
+         commandString += newChar;
+     }
+    }
+  }
+}
+
+void processCommand(String command)
+{
+  server.print("Processing command ");
+  server.println(command);
+  
+  if (command.indexOf("Light") > -1){
+    Serial.println("Photo command received"); 
+    server.print("Reading from photoresistor: " );
+    server.println(analogRead(A0));     //Print the integer returned by analogRead to the server object
+    commandString = "";
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Photo Cmd Rec'd");
+    delay(1000);
+    lcd.setCursor (0,1);
+    lcd.print("Photo Lvl: ");
+    lcd.setCursor (10,1);
+    lcd.print(analogRead (A0));
+       return;
+  } 
+
+if (command.indexOf("Temperature") > -1){
+  float t = dht.readTemperature();
+    Serial.println("Temperature command received"); 
+    server.print("Reading from Temperature Sensor: " );
+    server.print("Temerature: ");
+    server.print(t);
+    server.println(" *C");
+    commandString = "";
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("TEMP Cmd Rec'd");
+    delay(1000);
+    lcd.setCursor (0,1);
+    lcd.print("Temp: ");
+    lcd.setCursor (6,1);
+    lcd.print(t);
+    lcd.setCursor(11,1);
+    lcd.print(" *C");
+       return;
+  } 
+  if (command.indexOf("Humidity") > -1){
+  float h = dht.readHumidity();
+    Serial.println("Humidity command received"); 
+    server.print("Reading from Humidity Sensor: " );
+    server.print("Humidity:");
+    server.print(h);
+    server.println(" %");
+    commandString = "";
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Humid Cmd Rec'd");
+    delay(1000);
+    lcd.setCursor (0,1);
+    lcd.print("Humid: ");
+    lcd.setCursor (8,1);
+    lcd.print(h);
+    lcd.setCursor(13,1);
+    lcd.print(" % ");
+    return;
+  } 
+  
+  if (command.indexOf("LED On") > -1){
+    server.println("LED On command received"); 
+    digitalWrite(ledPin, HIGH);   // sets the LED on
+    server.println("LED was turned on");
+    commandString = "";
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("LED On Cmd Rec'd");
+    lcd.setCursor(0,1);
+    lcd.print("LED Light is ON");
+    return;
+  } 
+  
+  if (command.indexOf("LED Off") > -1){
+    Serial.println("LED Off command received"); 
+    digitalWrite(ledPin, LOW);   // sets the LED off
+    server.println("LED was turned off");
+    commandString = "";
+    
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("LED Off Cmd Rec'd");
+    lcd.setCursor(0,1);
+    lcd.print("LED Light is OFF");
+    return;
+  } 
+    
+  commandString = "";
+  instructions();
+}
+
+void instructions()
+{
+   server.println("I don't understand");
+   server.println("Please use one of these commands:");
+   server.println("* Light, to get a reading from the photoresistor");
+   server.println("* LED On, to turn on the LED");
+   server.println("* LED Off, to turn off the LED");
+   server.println("* Humidity to get reading from HUM Sensor:");
+   server.println("* Temperature to get reading from Temp Sensor");
+     
+}
+
